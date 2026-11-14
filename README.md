@@ -37,7 +37,7 @@ Upstream Sunshine has significant issues on macOS:
 | **Build on macOS** | Fails with C++ toolchain errors on modern Xcode/CLT | Builds cleanly with automated dependency management |
 | **System audio** | No capture — requires BlackHole virtual audio device | Native ScreenCaptureKit audio — zero-config, no extra software |
 | **Virtual displays** | Manual setup with BetterDisplay ($15 app) | Automatic — creates/destroys virtual displays on connect/disconnect |
-| **Gamepad support** | None on macOS | Virtual HID gamepad via IOHIDUserDevice (works with Dolphin, Steam, etc.) |
+| **Gamepad support** | None on macOS | USB DualSense-compatible virtual HID gamepad (native GameController and HID clients) |
 | **H.264 encoding** | All-IDR bug on Apple Silicon (every frame is a keyframe) | Fixed — proper P-frame generation, 3x bandwidth reduction |
 | **Encoder performance** | Capture and encode on same thread | Parallel capture/encode pipeline |
 
@@ -51,7 +51,7 @@ Upstream Sunshine has significant issues on macOS:
 
 - **Hardware-accelerated encoding** — VideoToolbox H.264 and HEVC encoding with Apple Silicon hardware acceleration. H.264 at 1080p60 encodes in ~15ms on M4 (fits within the 16.67ms frame budget). HEVC available for higher quality at the cost of slightly higher latency (~18ms on M4).
 
-- **Virtual gamepad** — Creates a system-wide virtual HID gamepad that appears as a real controller to any application. Works with SDL-based games, Dolphin Emulator, Steam, Ryujinx, and more. Requires one-time security configuration (see [Gamepad Setup](#gamepad-setup-optional)).
+- **Virtual gamepad** — Publishes a USB DualSense-compatible controller for macOS GameController and direct HID clients. Supports buttons, D-pad, sticks and analog triggers; game-specific support still depends on the application's controller backend. Requires the restricted virtual HID entitlement (see [Gamepad Setup](#gamepad-setup-optional)).
 
 - **Low latency** — Measured 1ms encode-to-network latency on local network with H.264 VideoToolbox on M4 Mac Mini.
 
@@ -136,6 +136,23 @@ Or if `~/.local/bin` isn't in your PATH:
 ```bash
 ~/.local/bin/lumina
 ```
+
+### Development Builds
+
+Run `./dev.sh` (or `./dev.sh performance` to enable performance logging) from
+any working directory. It builds the frontend and binaries, then installs them
+together with `hid_entitlements.plist` in `~/.local/share/lumina/`. The runtime
+asset path is explicitly set to that installation, overriding stale CMake cache
+settings. The script does not start Lumina automatically.
+
+Stop any existing Lumina instance, then launch the rebuilt binary:
+
+```bash
+~/.local/share/lumina/lumina
+```
+
+Open **https://localhost:47990**. Restarting is required: a running process still
+uses its old binary and compiled-in asset path.
 
 ### Running the Command-Line ZIP
 
@@ -290,6 +307,10 @@ macOS restricts the creation of virtual HID devices to prevent malicious softwar
 
 4. **Disable AMFI** (allows restricted entitlements on ad-hoc signed binaries):
    ```bash
+   csrutil disable
+
+   bputil -a
+
    nvram boot-args="amfi_get_out_of_my_way=1"
    ```
 
@@ -301,13 +322,25 @@ macOS restricts the creation of virtual HID devices to prevent malicious softwar
    codesign --sign - --force ~/.local/share/lumina/vd_helper
    ```
 
-   For a ZIP extracted in the current directory, use:
+   For a ZIP, run these commands from the extracted package root (the directory
+   containing both `hid_entitlements.plist` and `bin/`):
    ```bash
-   codesign --force --sign - --entitlements hid_entitlements.plist bin/vd_helper
-   codesign --force --sign - --entitlements hid_entitlements.plist bin/lumina
+   codesign --force --sign - bin/vd_helper
+   codesign --force --sign - --entitlements "$PWD/hid_entitlements.plist" bin/lumina
    ```
 
-That's it. The gamepad will now appear in any application as a generic USB controller. You can verify it's working by connecting from Moonlight with a controller and checking System Information > USB.
+   If signing development binaries manually from the source tree's `build/`
+   directory instead, the plist is one directory above:
+   ```bash
+   codesign --force --sign - ./vd_helper
+   codesign --force --sign - --entitlements ../hid_entitlements.plist ./lumina
+   ```
+   `cannot read entitlement data` means the plist cannot be read at the supplied
+   path; check the working directory and validate it with `plutil -lint PATH`.
+   Only `lumina` needs the restricted HID entitlement, not `vd_helper`. These
+   optional HID signatures still require the security configuration above.
+
+After connecting from Moonlight with a controller, Lumina publishes a USB DualSense-compatible HID device. Native controller clients should see a `GCDualSenseGamepad`; merely finding the device in IORegistry does not prove an application can receive its inputs. Use the independent-process recognition test below to verify native discovery and input delivery.
 
 ### Important Notes
 
@@ -350,8 +383,8 @@ cmake -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_WERROR=ON \
   -DHOMEBREW_ALLOW_FETCHCONTENT=ON \
   -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3) \
-  -DSUNSHINE_ASSETS_DIR=sunshine/assets \
-  -DSUNSHINE_BUILD_HOMEBREW=ON \
+  -DSUNSHINE_ASSETS_DIR=assets \
+  -DSUNSHINE_BUILD_HOMEBREW=OFF \
   -DSUNSHINE_ENABLE_TRAY=ON \
   -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase);$(brew --prefix qtsvg)" \
   -DQt6Svg_DIR="$(brew --prefix qtsvg)/lib/cmake/Qt6Svg" \
@@ -451,7 +484,7 @@ Moonlight Client connects (e.g. 1920x1080@60Hz)
 | `src/platform/macos/sc_audio.h` / `.m` | ScreenCaptureKit system audio capture — creates minimal SCStream for audio, handles non-interleaved→interleaved conversion, uses TPCircularBuffer |
 | `src/platform/macos/virtual_display.h` / `.m` | Virtual display management — spawns vd_helper subprocess, manages lifecycle (create/destroy/get_id) |
 | `src/platform/macos/vd_helper.m` | Standalone subprocess for CGVirtualDisplay — uses private API to create display, SkyLight functions to activate and position it |
-| `src/platform/macos/hid_gamepad.h` / `.m` | Virtual HID gamepad via IOHIDUserDevice — creates system-wide controller with generic VID/PID for SDL compatibility |
+| `src/platform/macos/hid_gamepad.h` / `.m`, `dualsense_gamepad.h` | USB DualSense-compatible virtual HID device, report encoding and driver setup callbacks |
 | `src/platform/macos/get_display_origin.m` | Helper utility to query a display's screen coordinates — used by app launch scripts to position windows on the virtual display |
 
 #### Modified Files (14)
@@ -526,14 +559,46 @@ Lumina removes this option for H.264. HEVC is unaffected and retains `max_ref_fr
 
 ### Virtual HID Gamepad
 
-Lumina creates a virtual USB gamepad using `IOHIDUserDeviceCreateWithProperties()`. The device appears as a generic USB gamepad with:
+Lumina uses `IOHIDUserDeviceCreateWithProperties()` to publish a USB
+DualSense-compatible device, following MacOSReconfigureController commit
+`98fa996859030065582003b27d7cb0156b22a534`:
 
-- **VID/PID:** `0x1209`/`0x5853` (generic, not matching any known controller)
-- **Usage Page:** Generic Desktop (0x01), Usage: Joystick (0x04)
-- **Buttons:** 16 digital buttons mapped to standard gamepad layout
-- **Axes:** 4 analog axes (2 sticks) + 2 triggers
+- **VID/PID:** `0x054c`/`0x0ce6`; manufacturer `Lumina`, unique `LUMINA-DS-<slot>` serials.
+- **Usage:** Generic Desktop (0x01) / Game Pad (0x05), with the complete 273-byte DualSense USB descriptor.
+- **Input:** Report ID `0x01`, 64 bytes including ID; unsigned 8-bit sticks centered at 128, two analog triggers, hat and PlayStation button ordering. Sunshine's Y-up axes are converted to HID Y-down. Xbox-semantic A/B/X/Y map to Cross/Circle/Square/Triangle.
+- **Driver setup:** GET_REPORT returns the current input state or declared feature reports, including non-degenerate calibration and a distinct locally administered address per controller slot. SET_REPORT acknowledges setup/output writes without applying effects.
+- **Lifecycle:** Install callbacks before publishing, send a neutral report, serialize updates and release the device only after cancellation completes. If HID creation fails, keyboard/mouse emulation remains available.
 
-**Why generic VID/PID?** SDL (used by most games/emulators) has a list of known Xbox/PlayStation VID/PIDs. When SDL sees a known VID/PID, it assumes the macOS Game Controller framework handles it and skips its own IOKit HID backend. Since virtual HID devices get `IOHIDEventDummyService` (not recognized by Game Controller framework), this creates a dead zone — SDL won't see the controller through either path. Using a generic VID/PID forces SDL to use its IOKit HID backend directly. Games and emulators like Dolphin can then manually map the buttons.
+The old generic joystick deliberately avoided native controller matching. Simply
+changing its VID/PID would leave Apple's DualSense driver reading the wrong
+wire layout. The new descriptor, report encoding and setup replies are kept in
+sync so both native GameController clients and direct HID clients can use the
+device. Motion, touch contacts, rumble, LEDs, audio and adaptive triggers are
+**not** emulated; the touchpad click button is supported. No Bluetooth report
+protocol is implemented. Compatibility with each game's SDL/Steam/browser
+backend must still be tested separately.
+
+#### Standalone gamepad tests
+
+Only macOS Command Line Tools are needed; these tests do not require CMake or
+Lumina's submodules:
+
+```bash
+# Protocol/layout/feature tests with ASan/UBSan, plus Objective-C compile/link check:
+bash scripts/test_macos_gamepad.sh
+
+# Also ad-hoc sign the isolated test binary with the HID entitlement and run it:
+bash scripts/test_macos_gamepad.sh --integration
+```
+
+The integration test creates a temporary virtual controller and checks direct
+IOHID enumeration, input/feature GET_REPORT replies, and discovery as
+`GCDualSenseGamepad` **in a separate process**, including button press/release,
+D-pad, both sticks, analog triggers and removal. Device creation denied by the
+local signing/security policy returns exit code 77; signing may also be rejected
+before startup. The script changes no system security settings and does not
+re-sign an installed Lumina binary. See [third-party notices](THIRD_PARTY_NOTICES.md)
+for the descriptor license.
 
 ### macOS Build Fixes
 

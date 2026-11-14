@@ -56,6 +56,7 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/macos/gamepad.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/gamepad.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.h"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/dualsense_gamepad.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"

@@ -693,6 +693,30 @@ TEST_F(ConfigHttpTest, GetPageWithoutAuthRequired) {
   ASSERT_TRUE(body.find("Test Page Content") != std::string::npos);
 }
 
+// Missing or empty build assets must not look like successful blank pages.
+TEST_F(ConfigHttpTest, GetPageMissingFileReturnsNotFound) {
+  std::filesystem::remove(web_dir_test_file);
+
+  const auto response = client->request("GET", "/page-noauth-test");
+  ASSERT_EQ(response->status_code, "404 Not Found");
+  ASSERT_NE(response->content.string().find("Rebuild and reinstall the web assets"), std::string::npos);
+}
+
+TEST_F(ConfigHttpTest, GetPageEmptyFileReturnsNotFound) {
+  std::ofstream(web_dir_test_file, std::ios::trunc).close();
+
+  const auto response = client->request("GET", "/page-noauth-test");
+  ASSERT_EQ(response->status_code, "404 Not Found");
+  ASSERT_FALSE(response->content.string().empty());
+}
+
+TEST_F(ConfigHttpTest, GetPageMissingFileStillRequiresAuth) {
+  std::filesystem::remove(web_dir_test_file);
+
+  const auto response = client->request("GET", "/page-test");
+  ASSERT_EQ(response->status_code, "401 Unauthorized");
+}
+
 // Test: confighttp::getPage() redirects when redirect_if_username=true and username is set
 TEST_F(ConfigHttpTest, GetPageRedirectsWhenUsernameSet) {
   // Username is set in SetUp(), so redirect_if_username should trigger redirect

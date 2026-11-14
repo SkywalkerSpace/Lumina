@@ -1,152 +1,43 @@
 /**
  * @file src/platform/macos/hid_gamepad.m
- * @brief Virtual HID gamepad implementation via IOHIDUserDevice.
- * @details Creates a virtual Xbox-style gamepad recognized by macOS Game Controller framework.
- *          Requires SIP to be disabled for IOHIDUserDevice creation to succeed
- *          (bypasses com.apple.developer.hid.virtual.device entitlement check).
+ * @brief USB DualSense-compatible virtual gamepad via IOHIDUserDevice.
+ * @details Requires com.apple.developer.hid.virtual.device in the executable's
+ *          effective signing entitlements. No system security settings are changed.
  */
 #import "hid_gamepad.h"
-#import <IOKit/hidsystem/IOHIDUserDevice.h>
 #import <mach/mach_time.h>
 
-// Sunshine button flags (from platform/common.h)
-#define SF_DPAD_UP      0x0001
-#define SF_DPAD_DOWN    0x0002
-#define SF_DPAD_LEFT    0x0004
-#define SF_DPAD_RIGHT   0x0008
-#define SF_START        0x0010
-#define SF_BACK         0x0020
-#define SF_LEFT_STICK   0x0040
-#define SF_RIGHT_STICK  0x0080
-#define SF_LEFT_BUTTON  0x0100
-#define SF_RIGHT_BUTTON 0x0200
-#define SF_HOME         0x0400
-#define SF_A            0x1000
-#define SF_B            0x2000
-#define SF_X            0x4000
-#define SF_Y            0x8000
-
-// Hat switch directions (matching HID spec 4-bit values)
-#define HAT_N     0
-#define HAT_NE    1
-#define HAT_E     2
-#define HAT_SE    3
-#define HAT_S     4
-#define HAT_SW    5
-#define HAT_W     6
-#define HAT_NW    7
-#define HAT_NONE  8
-
-/**
- * HID Report Descriptor for an Xbox-style gamepad.
- *
- * Layout (Report ID 0x01, 13 bytes after report ID):
- *   - 16 buttons (2 bytes)
- *   - 1 hat switch, 4-bit + 4-bit padding (1 byte)
- *   - 2 triggers, 8-bit each (2 bytes)
- *   - 4 stick axes, 16-bit signed each (8 bytes)
- */
-static const uint8_t kHIDReportDescriptor[] = {
-    0x05, 0x01,        // Usage Page (Generic Desktop)
-    0x09, 0x04,        // Usage (Joystick) — generic, avoids SDL's GCController-only path
-    0xA1, 0x01,        // Collection (Application)
-    0x85, 0x01,        //   Report ID (1)
-
-    // --- 16 Buttons ---
-    0x05, 0x09,        //   Usage Page (Button)
-    0x19, 0x01,        //   Usage Minimum (1)
-    0x29, 0x10,        //   Usage Maximum (16)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x01,        //   Logical Maximum (1)
-    0x95, 0x10,        //   Report Count (16)
-    0x75, 0x01,        //   Report Size (1)
-    0x81, 0x02,        //   Input (Data, Variable, Absolute)
-
-    // --- Hat Switch (D-pad) ---
-    0x05, 0x01,        //   Usage Page (Generic Desktop)
-    0x09, 0x39,        //   Usage (Hat Switch)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x07,        //   Logical Maximum (7)
-    0x35, 0x00,        //   Physical Minimum (0)
-    0x46, 0x3B, 0x01,  //   Physical Maximum (315)
-    0x65, 0x14,        //   Unit (Degrees)
-    0x75, 0x04,        //   Report Size (4)
-    0x95, 0x01,        //   Report Count (1)
-    0x81, 0x42,        //   Input (Data, Variable, Absolute, Null State)
-
-    // --- Hat Switch Padding (4 bits) ---
-    0x75, 0x04,        //   Report Size (4)
-    0x95, 0x01,        //   Report Count (1)
-    0x81, 0x01,        //   Input (Constant)
-
-    // --- Triggers (2x 8-bit) ---
-    // Wine/CrossOver's HID-to-XInput path expects triggers on Z/Rz and the
-    // right stick on Rx/Ry. Using Brake/Accelerator creates duplicate DirectInput
-    // axes and leaves the XInput right-stick axes unpopulated.
-    // Physical range and unit are global HID items. Reset the hat switch's
-    // degree metadata before describing the remaining linear controls.
-    0x35, 0x00,        //   Physical Minimum (0)
-    0x45, 0x00,        //   Physical Maximum (0 = use logical maximum)
-    0x65, 0x00,        //   Unit (None)
-    0x05, 0x01,        //   Usage Page (Generic Desktop)
-    0x09, 0x32,        //   Usage (Z) - Left Trigger
-    0x09, 0x35,        //   Usage (Rz) - Right Trigger
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
-    0x75, 0x08,        //   Report Size (8)
-    0x95, 0x02,        //   Report Count (2)
-    0x81, 0x02,        //   Input (Data, Variable, Absolute)
-
-    // --- Stick Axes (4x 16-bit signed) ---
-    0x05, 0x01,        //   Usage Page (Generic Desktop)
-    0x09, 0x30,        //   Usage (X) - Left Stick X
-    0x09, 0x31,        //   Usage (Y) - Left Stick Y
-    0x09, 0x33,        //   Usage (Rx) - Right Stick X
-    0x09, 0x34,        //   Usage (Ry) - Right Stick Y
-    0x16, 0x00, 0x80,  //   Logical Minimum (-32768)
-    0x26, 0xFF, 0x7F,  //   Logical Maximum (32767)
-    0x36, 0x00, 0x80,  //   Physical Minimum (-32768)
-    0x46, 0xFF, 0x7F,  //   Physical Maximum (32767)
-    0x75, 0x10,        //   Report Size (16)
-    0x95, 0x04,        //   Report Count (4)
-    0x81, 0x02,        //   Input (Data, Variable, Absolute)
-
-    0xC0               // End Collection
-};
+static NSDictionary *deviceProperties(int index) {
+    return @{
+        @kIOHIDVendorIDKey:       @(0x054c),
+        @kIOHIDProductIDKey:      @(0x0ce6),
+        @kIOHIDVersionNumberKey:  @(0x0100),
+        @kIOHIDManufacturerKey:   @"Lumina",
+        @kIOHIDProductKey:        @"Lumina DualSense Compatible",
+        @kIOHIDSerialNumberKey:   [NSString stringWithFormat:@"LUMINA-DS-%d", index],
+        @kIOHIDTransportKey:      @"USB",
+        @kIOHIDReportDescriptorKey: [NSData dataWithBytes:kDualSenseReportDescriptor
+                                                   length:sizeof(kDualSenseReportDescriptor)],
+    };
+}
 
 @implementation HIDGamepad
 
 + (BOOL)isAvailable {
-    // Probe by attempting to create a minimal IOHIDUserDevice.
-    // This will fail when SIP is enabled (entitlement check).
-    NSDictionary *props = @{
-        @kIOHIDVendorIDKey:  @(0x1209),  // Generic (pid.codes open-source VID)
-        @kIOHIDProductIDKey: @(0x5853), // Not in SDL's known controller database
-        @kIOHIDReportDescriptorKey: [NSData dataWithBytes:kHIDReportDescriptor
-                                                   length:sizeof(kHIDReportDescriptor)],
-    };
-
-    IOHIDUserDeviceRef testDevice = IOHIDUserDeviceCreateWithProperties(
-        kCFAllocatorDefault,
-        (__bridge CFDictionaryRef)props,
-        0
-    );
-
-    if (testDevice) {
-        CFRelease(testDevice);
-        return YES;
-    }
-
-    return NO;
+    // Probe the same identity/descriptor as the real device, without publishing
+    // a short-lived controller to applications or racing driver setup requests.
+    IOHIDUserDeviceRef device = IOHIDUserDeviceCreateWithProperties(
+        kCFAllocatorDefault, (__bridge CFDictionaryRef)deviceProperties(0),
+        IOHIDUserDeviceOptionsCreateOnActivate);
+    if (!device) return NO;
+    CFRelease(device);
+    return YES;
 }
 
 - (instancetype)initWithIndex:(int)index {
     self = [super init];
     if (self) {
         _gamepadIndex = index;
-        _isConnected = NO;
-        _hidDevice = NULL;
-        _hidQueue = nil;
     }
     return self;
 }
@@ -157,104 +48,83 @@ static const uint8_t kHIDReportDescriptor[] = {
 }
 
 - (BOOL)createDevice {
-    if (_hidDevice) {
+    @synchronized (self) {
+        if (_hidDevice) return YES;
+
+        // Defer publication until the get/set-report handlers are installed.
+        _hidDevice = IOHIDUserDeviceCreateWithProperties(
+            kCFAllocatorDefault, (__bridge CFDictionaryRef)deviceProperties(_gamepadIndex),
+            IOHIDUserDeviceOptionsCreateOnActivate);
+        if (!_hidDevice) {
+            NSLog(@"[HIDGamepad] Cannot create DualSense %d; check virtual HID signing entitlement", _gamepadIndex);
+            return NO;
+        }
+
+        NSString *label = [NSString stringWithFormat:@"com.lumina.hid.gamepad.%d", _gamepadIndex];
+        dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+            DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
+        _hidQueue = dispatch_queue_create([label UTF8String], attr);
+        HIDGamepadReport neutral = dualSenseReport(0, 0, 0, 0, 0, 0, 0);
+        _sequence = 0;
+        _inputReport = [[NSMutableData alloc] initWithBytes:&neutral length:sizeof(neutral)];
+
+        // Capture the cache, not self: self -> device -> block -> self would leak.
+        // The block retains the cache through asynchronous device cancellation.
+        NSMutableData *cache = _inputReport;
+        uint8_t index = (uint8_t)_gamepadIndex;
+        IOHIDUserDeviceRegisterGetReportBlock(_hidDevice,
+            ^IOReturn(IOHIDReportType type, uint32_t reportID, uint8_t *report, CFIndex *length) {
+                if (!report || !length || *length < 0) return kIOReturnBadArgument;
+                if (type == kIOHIDReportTypeInput && reportID == 1) {
+                    @synchronized (cache) {
+                        CFIndex size = MIN(*length, (CFIndex)[cache length]);
+                        memcpy(report, [cache bytes], (size_t)size);
+                        *length = size;
+                    }
+                    return kIOReturnSuccess;
+                }
+                if (type == kIOHIDReportTypeFeature) {
+                    uint8_t feature[64];
+                    size_t size = dualSenseFeatureReport(reportID, feature, index);
+                    if (!size) return kIOReturnUnsupported;
+                    size = MIN(size, (size_t)*length);
+                    memcpy(report, feature, size);
+                    *length = (CFIndex)size;
+                    return kIOReturnSuccess;
+                }
+                return kIOReturnUnsupported;
+            });
+        IOHIDUserDeviceRegisterSetReportBlock(_hidDevice,
+            ^IOReturn(IOHIDReportType type, uint32_t reportID, const uint8_t *report, CFIndex length) {
+                // Acknowledge driver setup, LED and rumble writes; no physical
+                // actuator or feedback forwarding is implemented yet.
+                (void)report;
+                (void)length;
+                if ((type == kIOHIDReportTypeOutput && reportID == 2) ||
+                    (type == kIOHIDReportTypeFeature && dualSenseFeatureLength(reportID))) {
+                    return kIOReturnSuccess;
+                }
+                return kIOReturnUnsupported;
+            });
+        IOHIDUserDeviceRef device = _hidDevice;
+        IOHIDUserDeviceSetCancelHandler(device, ^{
+            CFRelease(device);
+        });
+        IOHIDUserDeviceSetDispatchQueue(_hidDevice, _hidQueue);
+        IOHIDUserDeviceActivate(_hidDevice);
+        _isConnected = YES;
+
+        IOReturn result = IOHIDUserDeviceHandleReportWithTimeStamp(
+            _hidDevice, mach_absolute_time(), (const uint8_t *)&neutral, sizeof(neutral));
+        if (result != kIOReturnSuccess) {
+            NSLog(@"[HIDGamepad] Initial DualSense report failed for %d (0x%x)", _gamepadIndex, result);
+            [self disconnect];
+            return NO;
+        }
+        // HID publication alone is not proof that GameController has attached.
+        NSLog(@"[HIDGamepad] DualSense-compatible HID device %d published", _gamepadIndex);
         return YES;
     }
-
-    NSString *queueLabel = [NSString stringWithFormat:@"com.sunshine.hid.gamepad.%d", _gamepadIndex];
-    dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
-        DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
-    _hidQueue = dispatch_queue_create([queueLabel UTF8String], attr);
-
-    NSDictionary *props = @{
-        @kIOHIDVendorIDKey:       @(0x1209),  // Generic (pid.codes open-source VID)
-        @kIOHIDProductIDKey:      @(0x5853), // Not in SDL's known controller database
-        @kIOHIDManufacturerKey:   @"Sunshine Virtual Gamepad",
-        @kIOHIDProductKey:        [NSString stringWithFormat:@"Sunshine Gamepad %d", _gamepadIndex],
-        @kIOHIDSerialNumberKey:   [NSString stringWithFormat:@"SUNSHINE-%d", _gamepadIndex],
-        @kIOHIDTransportKey:      @"USB",
-        @kIOHIDReportDescriptorKey: [NSData dataWithBytes:kHIDReportDescriptor
-                                                   length:sizeof(kHIDReportDescriptor)],
-    };
-
-    _hidDevice = IOHIDUserDeviceCreateWithProperties(
-        kCFAllocatorDefault,
-        (__bridge CFDictionaryRef)props,
-        0
-    );
-
-    if (!_hidDevice) {
-        NSLog(@"[HIDGamepad] Failed to create IOHIDUserDevice for gamepad %d", _gamepadIndex);
-        _hidQueue = nil;
-        return NO;
-    }
-
-    // Set up dispatch queue and activate the device
-    IOHIDUserDeviceSetDispatchQueue(_hidDevice, _hidQueue);
-    IOHIDUserDeviceActivate(_hidDevice);
-
-    _isConnected = YES;
-
-    // Send initial neutral state
-    HIDGamepadReport report = {0};
-    report.reportId = 0x01;
-    report.hatSwitch = HAT_NONE;
-
-    IOReturn result = IOHIDUserDeviceHandleReportWithTimeStamp(
-        _hidDevice, mach_absolute_time(),
-        (const uint8_t *)&report, sizeof(report)
-    );
-    if (result != kIOReturnSuccess) {
-        NSLog(@"[HIDGamepad] Warning: failed to send initial report for gamepad %d (0x%x)", _gamepadIndex, result);
-    }
-
-    NSLog(@"[HIDGamepad] Gamepad %d created successfully (IOHIDUserDevice)", _gamepadIndex);
-    return YES;
-}
-
-/**
- * Converts Sunshine d-pad button flags to HID hat switch value.
- */
-static uint8_t dpadToHatSwitch(uint32_t buttons) {
-    BOOL up    = (buttons & SF_DPAD_UP) != 0;
-    BOOL down  = (buttons & SF_DPAD_DOWN) != 0;
-    BOOL left  = (buttons & SF_DPAD_LEFT) != 0;
-    BOOL right = (buttons & SF_DPAD_RIGHT) != 0;
-
-    if (up && right)  return HAT_NE;
-    if (up && left)   return HAT_NW;
-    if (down && right) return HAT_SE;
-    if (down && left)  return HAT_SW;
-    if (up)           return HAT_N;
-    if (right)        return HAT_E;
-    if (down)         return HAT_S;
-    if (left)         return HAT_W;
-    return HAT_NONE;
-}
-
-/**
- * Maps Sunshine's 32-bit button flags to the 16-bit HID button field.
- *
- * HID button layout:
- *   bit 0: A       bit 4: LB       bit 8:  L3
- *   bit 1: B       bit 5: RB       bit 9:  R3
- *   bit 2: X       bit 6: Back     bit 10: Home
- *   bit 3: Y       bit 7: Start    bits 11-15: reserved
- */
-static uint16_t mapButtons(uint32_t sf) {
-    uint16_t hid = 0;
-    if (sf & SF_A)            hid |= (1 << 0);
-    if (sf & SF_B)            hid |= (1 << 1);
-    if (sf & SF_X)            hid |= (1 << 2);
-    if (sf & SF_Y)            hid |= (1 << 3);
-    if (sf & SF_LEFT_BUTTON)  hid |= (1 << 4);
-    if (sf & SF_RIGHT_BUTTON) hid |= (1 << 5);
-    if (sf & SF_BACK)         hid |= (1 << 6);
-    if (sf & SF_START)        hid |= (1 << 7);
-    if (sf & SF_LEFT_STICK)   hid |= (1 << 8);
-    if (sf & SF_RIGHT_STICK)  hid |= (1 << 9);
-    if (sf & SF_HOME)         hid |= (1 << 10);
-    return hid;
 }
 
 - (void)updateState:(uint32_t)buttons
@@ -264,59 +134,38 @@ static uint16_t mapButtons(uint32_t sf) {
         rightStickY:(int16_t)rsY
         leftTrigger:(uint8_t)lt
        rightTrigger:(uint8_t)rt {
-
-    if (!_isConnected || !_hidDevice) {
-        return;
-    }
-
-    HIDGamepadReport report;
-    report.reportId     = 0x01;
-    report.buttons      = mapButtons(buttons);
-    report.hatSwitch    = dpadToHatSwitch(buttons);
-    report.leftTrigger  = lt;
-    report.rightTrigger = rt;
-    report.leftStickX   = lsX;
-    report.leftStickY   = lsY;
-    report.rightStickX  = rsX;
-    report.rightStickY  = rsY;
-
-    IOReturn result = IOHIDUserDeviceHandleReportWithTimeStamp(
-        _hidDevice, mach_absolute_time(),
-        (const uint8_t *)&report, sizeof(report)
-    );
-    if (result != kIOReturnSuccess) {
-        NSLog(@"[HIDGamepad] Failed to send report for gamepad %d (0x%x)", _gamepadIndex, result);
+    @synchronized (self) {
+        if (!_isConnected || !_hidDevice) return;
+        HIDGamepadReport report = dualSenseReport(buttons, lsX, lsY, rsX, rsY, lt, rt);
+        report.sequence = ++_sequence;
+        @synchronized (_inputReport) {
+            memcpy([_inputReport mutableBytes], &report, sizeof(report));
+        }
+        // Serialize cache updates and sends, including rapid press/release.
+        IOReturn result = IOHIDUserDeviceHandleReportWithTimeStamp(
+            _hidDevice, mach_absolute_time(), (const uint8_t *)&report, sizeof(report));
+        if (result != kIOReturnSuccess) {
+            NSLog(@"[HIDGamepad] Report failed for gamepad %d (0x%x)", _gamepadIndex, result);
+        }
     }
 }
 
 - (void)disconnect {
-    if (!_hidDevice) {
-        return;
-    }
-
-    _isConnected = NO;
-
-    IOHIDUserDeviceRef device = _hidDevice;
-    dispatch_queue_t queue = _hidQueue;
-    int index = _gamepadIndex;
-
-    _hidDevice = NULL;
-
-    if (queue) {
-        // Cancel the device and release in the cancel handler
-        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-        IOHIDUserDeviceSetCancelHandler(device, ^{
-            CFRelease(device);
-            dispatch_semaphore_signal(sem);
-        });
-        IOHIDUserDeviceCancel(device);
-        dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+    @synchronized (self) {
+        if (!_hidDevice) return;
+        _isConnected = NO;
+        IOHIDUserDeviceRef device = _hidDevice;
+        dispatch_queue_t queue = _hidQueue;
+        _hidDevice = NULL;
         _hidQueue = nil;
-    } else {
-        CFRelease(device);
+        // Never wait on the HID callback queue. Cancellation owns the device
+        // until callbacks finish, and their captured report cache stays alive.
+        IOHIDUserDeviceCancel(device);
+        dispatch_release(queue);
+        [_inputReport release];
+        _inputReport = nil;
+        NSLog(@"[HIDGamepad] Gamepad %d disconnected", _gamepadIndex);
     }
-
-    NSLog(@"[HIDGamepad] Gamepad %d disconnected", index);
 }
 
 @end

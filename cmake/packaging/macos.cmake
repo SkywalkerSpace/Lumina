@@ -33,8 +33,12 @@ if(SUNSHINE_PACKAGE_MACOS)
         install(FILES "${LUMINA_QT_COCOA_PLUGIN}"
                 DESTINATION "bin/PlugIns/platforms"
                 COMPONENT Runtime)
+        set(LUMINA_QT_RUNTIME_DIRS "${LUMINA_QT_PREFIX}/lib;${LUMINA_QTSVG_PREFIX}/lib")
+        if(DEFINED LUMINA_BROTLI_PREFIX AND EXISTS "${LUMINA_BROTLI_PREFIX}/lib")
+            list(APPEND LUMINA_QT_RUNTIME_DIRS "${LUMINA_BROTLI_PREFIX}/lib")
+        endif()
         install(CODE
-                "set(LUMINA_QT_RUNTIME_DIRS \"${LUMINA_QT_PREFIX}/lib;${LUMINA_QTSVG_PREFIX}/lib\")"
+                "set(LUMINA_QT_RUNTIME_DIRS \"${LUMINA_QT_RUNTIME_DIRS}\")"
                 COMPONENT Runtime)
 
         install(CODE [[
@@ -102,6 +106,10 @@ else()
     install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/macos/misc/uninstall_pkg.sh"
             DESTINATION "${SUNSHINE_ASSETS_DIR}")
 endif()
+
+install(FILES "${PROJECT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+        DESTINATION "${SUNSHINE_ASSETS_DIR}"
+        COMPONENT Runtime)
 
 install(DIRECTORY "${SUNSHINE_SOURCE_ASSETS_DIR}/macos/assets/"
         DESTINATION "${SUNSHINE_ASSETS_DIR}")

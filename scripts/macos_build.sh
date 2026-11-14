@@ -47,6 +47,8 @@ function run_step_deps() {
 }
 
 function run_step_cmake() {
+  local openssl_prefix
+  openssl_prefix="$(brew --prefix openssl@3 2>/dev/null)"
   local cmake_args=(
     "-B=${build_dir}"
     "-S=."
@@ -55,9 +57,12 @@ function run_step_cmake() {
     "-DBUILD_WERROR=ON"
     "-DCMAKE_BUILD_TYPE=${build_type}"
     "-DICU_ROOT=$(brew --prefix icu4c@78 2>/dev/null)"
-    "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3 2>/dev/null)"
+    "-DOPENSSL_ROOT_DIR=${openssl_prefix}"
+    "-DCMAKE_CXX_FLAGS=-I${openssl_prefix}/include"
+    "-DCMAKE_C_FLAGS=-I${openssl_prefix}/include"
     "-DOpus_ROOT_DIR=$(brew --prefix opus 2>/dev/null)"
     "-DCMAKE_PREFIX_PATH=$(brew --prefix qtbase 2>/dev/null);$(brew --prefix qtsvg 2>/dev/null)"
+    "-DLUMINA_BROTLI_PREFIX=$(brew --prefix brotli 2>/dev/null)"
     "-DQt6Svg_DIR=$(brew --prefix qtsvg 2>/dev/null)/lib/cmake/Qt6Svg"
     "-DSUNSHINE_ASSETS_DIR=assets"
     "-DSUNSHINE_BUILD_HOMEBREW=OFF"

@@ -7,6 +7,10 @@
 #include <boost/asio/ip/host_name.hpp>
 #include <src/platform/common.h>
 
+#ifdef __APPLE__
+  #include <src/input.h>
+#endif
+
 struct SetEnvTest: ::testing::TestWithParam<std::tuple<std::string, std::string, int>> {
 protected:
   void TearDown() override {
@@ -53,3 +57,20 @@ TEST(HostnameTests, TestAsioEquality) {
   // These should be equivalent on all platforms for ASCII hostnames
   ASSERT_EQ(platf::get_host_name(), boost::asio::ip::host_name());
 }
+
+#ifdef __APPLE__
+TEST(GamepadProbeTests, MacOSAdvertisesConcreteHidBackend) {
+  const auto &gamepads = platf::supported_gamepads(nullptr);
+  bool found_hid_backend = false;
+  bool hid_enabled = false;
+  for (const auto &gamepad : gamepads) {
+    if (gamepad.name == "ds5") {
+      found_hid_backend = true;
+      hid_enabled = gamepad.is_enabled;
+    }
+  }
+
+  ASSERT_TRUE(found_hid_backend);
+  EXPECT_EQ(input::probe_gamepads(), !hid_enabled);
+}
+#endif

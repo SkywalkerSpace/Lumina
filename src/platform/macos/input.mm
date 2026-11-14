@@ -370,7 +370,7 @@ const KeyCodeMap kKeyCodesMap[] = {
         if ([hid createDevice]) {
           macos_input->hid_gamepads[i] = hid;
           macos_input->gamepad_modes[i] = gamepad_mode_e::HID;
-          BOOST_LOG(info) << "Gamepad "sv << i << " allocated (HID virtual device mode)"sv;
+          BOOST_LOG(info) << "Gamepad "sv << i << " allocated (USB DualSense-compatible HID mode)"sv;
           return i;
         }
         [hid release];
@@ -765,7 +765,7 @@ const KeyCodeMap kKeyCodesMap[] = {
     if (macos_input->hid_available) {
       BOOST_LOG(info) << "IOHIDUserDevice virtual gamepad support is available"sv;
     } else {
-      BOOST_LOG(info) << "IOHIDUserDevice virtual gamepad not available (SIP enabled?), using keyboard/mouse emulation fallback"sv;
+      BOOST_LOG(info) << "Virtual HID gamepad unavailable (check virtual HID signing entitlement); using keyboard/mouse emulation fallback"sv;
     }
 
     // Initialize gamepad slots
@@ -813,6 +813,9 @@ const KeyCodeMap kKeyCodesMap[] = {
     if (!initialized) {
       bool hid_ok = [HIDGamepad isAvailable];
       gamepads.push_back({"auto", true, hid_ok ? "gamepads.macos_hid" : "gamepads.macos_emulation"});
+      // The common startup probe ignores the "auto" selector. Advertise the
+      // actual HID backend too, enabled only when virtual device creation works.
+      gamepads.push_back({"ds5", hid_ok, hid_ok ? "" : "gamepads.macos_emulation"});
       initialized = true;
     }
 

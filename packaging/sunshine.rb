@@ -129,7 +129,7 @@ class Sunshine < Formula
       -DCMAKE_INSTALL_PREFIX=#{prefix}
       -DHOMEBREW_ALLOW_FETCHCONTENT=ON
       -DOPENSSL_ROOT_DIR=#{Formula["openssl"].opt_prefix}
-      -DSUNSHINE_ASSETS_DIR=sunshine/assets
+      -DSUNSHINE_ASSETS_DIR=assets
       -DSUNSHINE_BUILD_HOMEBREW=ON
       -DSUNSHINE_PUBLISHER_NAME='jayl-dev'
       -DSUNSHINE_PUBLISHER_WEBSITE='https://github.com/jayl-dev/Lumina'

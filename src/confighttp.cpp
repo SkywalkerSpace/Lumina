@@ -462,7 +462,14 @@ namespace confighttp {
 
     print_req(request);
 
-    const std::string content = file_handler::read_file((std::string(WEB_DIR) + html_file).c_str());
+    const std::string page_path = std::string(WEB_DIR) + html_file;
+    const std::string content = file_handler::read_file(page_path.c_str());
+    if (content.empty()) {
+      BOOST_LOG(error) << "Web UI page is missing, unreadable, or empty: " << page_path;
+      not_found(response, request, "Web UI page unavailable. Rebuild and reinstall the web assets.");
+      return;
+    }
+
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
 
