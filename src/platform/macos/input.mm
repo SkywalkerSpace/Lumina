@@ -366,11 +366,19 @@ const KeyCodeMap kKeyCodesMap[] = {
 
       // Try HID mode first if available
       if (macos_input->hid_available) {
-        HIDGamepad *hid = [[HIDGamepad alloc] initWithIndex:i];
+        // Preserve an explicit DualSense selection; "x360" is the common UI's
+        // Xbox selector (the macOS wire profile is Xbox Series Bluetooth).
+        HIDGamepadProfile profile = [HIDGamepad defaultProfile];
+        if (config::input.gamepad == "ds5") {
+          profile = HIDGamepadProfileDualSense;
+        } else if (config::input.gamepad == "x360") {
+          profile = HIDGamepadProfileXbox;
+        }
+        HIDGamepad *hid = [[HIDGamepad alloc] initWithIndex:i profile:profile];
         if ([hid createDevice]) {
           macos_input->hid_gamepads[i] = hid;
           macos_input->gamepad_modes[i] = gamepad_mode_e::HID;
-          BOOST_LOG(info) << "Gamepad "sv << i << " allocated (USB DualSense-compatible HID mode)"sv;
+          BOOST_LOG(info) << "Gamepad "sv << i << " allocated ("sv << [hid.profileName UTF8String] << " HID mode)"sv;
           return i;
         }
         [hid release];
@@ -760,7 +768,7 @@ const KeyCodeMap kKeyCodesMap[] = {
     macos_input->mouse_down[1] = false;
     macos_input->mouse_down[2] = false;
 
-    // Probe HID virtual gamepad support (requires SIP disabled)
+    // Probe virtual HID creation permission; native input is tested separately.
     macos_input->hid_available = [HIDGamepad isAvailable];
     if (macos_input->hid_available) {
       BOOST_LOG(info) << "IOHIDUserDevice virtual gamepad support is available"sv;
@@ -816,6 +824,7 @@ const KeyCodeMap kKeyCodesMap[] = {
       // The common startup probe ignores the "auto" selector. Advertise the
       // actual HID backend too, enabled only when virtual device creation works.
       gamepads.push_back({"ds5", hid_ok, hid_ok ? "" : "gamepads.macos_emulation"});
+      gamepads.push_back({"x360", hid_ok, hid_ok ? "" : "gamepads.macos_emulation"});
       initialized = true;
     }
 

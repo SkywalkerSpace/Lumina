@@ -1,8 +1,8 @@
 /**
  * @file src/platform/macos/hid_gamepad.h
  * @brief Virtual HID gamepad via IOHIDUserDevice for macOS.
- * @details Publishes a USB DualSense-compatible gamepad for native GameController
- *          and HID clients. Requires the restricted virtual HID entitlement.
+ * @details Publishes DualSense USB or Xbox Bluetooth wire profiles for native
+ *          GameController and HID clients. Requires the virtual HID entitlement.
  */
 #pragma once
 
@@ -10,11 +10,25 @@
 #import <IOKit/hidsystem/IOHIDUserDevice.h>
 
 #include "dualsense_gamepad.h"
+#include "xbox_gamepad.h"
+
+typedef NS_ENUM(NSUInteger, HIDGamepadProfile) {
+    HIDGamepadProfileDualSense,
+    HIDGamepadProfileXbox,
+};
 
 @interface HIDGamepad : NSObject {
     NSMutableData *_inputReport;
     uint8_t _sequence;
+    BOOL _loggedInput;
 }
+
+@property (nonatomic, readonly) HIDGamepadProfile profile;
+@property (nonatomic, readonly) NSString *profileName;
+
+// Keep the existing DualSense default on macOS 15; prefer the Xbox Bluetooth
+// wire profile on newer systems. This creates no actual Bluetooth connection.
++ (HIDGamepadProfile)defaultProfile;
 
 @property (nonatomic, assign) int gamepadIndex;
 @property (nonatomic, assign) BOOL isConnected;
@@ -28,6 +42,7 @@
 + (BOOL)isAvailable;
 
 - (instancetype)initWithIndex:(int)index;
+- (instancetype)initWithIndex:(int)index profile:(HIDGamepadProfile)profile;
 
 /**
  * Creates the IOHIDUserDevice and sends an initial neutral-state report.

@@ -37,7 +37,7 @@ Upstream Sunshine has significant issues on macOS:
 | **Build on macOS** | Fails with C++ toolchain errors on modern Xcode/CLT | Builds cleanly with automated dependency management |
 | **System audio** | No capture — requires BlackHole virtual audio device | Native ScreenCaptureKit audio — zero-config, no extra software |
 | **Virtual displays** | Manual setup with BetterDisplay ($15 app) | Automatic — creates/destroys virtual displays on connect/disconnect |
-| **Gamepad support** | None on macOS | USB DualSense-compatible virtual HID gamepad (native GameController and HID clients) |
+| **Gamepad support** | None on macOS | Xbox / DualSense-compatible virtual HID profiles; application compatibility requires runtime testing |
 | **H.264 encoding** | All-IDR bug on Apple Silicon (every frame is a keyframe) | Fixed — proper P-frame generation, 3x bandwidth reduction |
 | **Encoder performance** | Capture and encode on same thread | Parallel capture/encode pipeline |
 
@@ -51,7 +51,7 @@ Upstream Sunshine has significant issues on macOS:
 
 - **Hardware-accelerated encoding** — VideoToolbox H.264 and HEVC encoding with Apple Silicon hardware acceleration. H.264 at 1080p60 encodes in ~15ms on M4 (fits within the 16.67ms frame budget). HEVC available for higher quality at the cost of slightly higher latency (~18ms on M4).
 
-- **Virtual gamepad** — Publishes a USB DualSense-compatible controller for macOS GameController and direct HID clients. Supports buttons, D-pad, sticks and analog triggers; game-specific support still depends on the application's controller backend. Requires the restricted virtual HID entitlement (see [Gamepad Setup](#gamepad-setup-optional)).
+- **Virtual gamepad** — Offers Xbox Bluetooth-wire and DualSense USB-wire profiles for macOS GameController and direct HID clients; no Bluetooth connection is needed. Supports buttons, D-pad, sticks and analog triggers. Native enumeration alone does not prove input delivery; each application's backend needs runtime verification. Requires the restricted virtual HID entitlement (see [Gamepad Setup](#gamepad-setup-optional)).
 
 - **Low latency** — Measured 1ms encode-to-network latency on local network with H.264 VideoToolbox on M4 Mac Mini.
 
@@ -340,7 +340,7 @@ macOS restricts the creation of virtual HID devices to prevent malicious softwar
    Only `lumina` needs the restricted HID entitlement, not `vd_helper`. These
    optional HID signatures still require the security configuration above.
 
-After connecting from Moonlight with a controller, Lumina publishes a USB DualSense-compatible HID device. Native controller clients should see a `GCDualSenseGamepad`; merely finding the device in IORegistry does not prove an application can receive its inputs. Use the independent-process recognition test below to verify native discovery and input delivery.
+After connecting from Moonlight with a controller, Lumina publishes a virtual HID device. With `gamepad = auto`, macOS 27+ uses the Xbox Bluetooth-wire profile; earlier systems keep DualSense. Select `gamepad = x360` to force the Xbox Bluetooth profile (Xbox One S / Model 1708 identity), or `gamepad = ds5` to retain DualSense. Restart Lumina and reconnect Moonlight after changing the profile. The Xbox path is an alternative for compatibility testing, not a guarantee of support in every app. Merely finding a controller in IORegistry or GameController does not prove input delivery; use the tests below.
 
 ### Important Notes
 
@@ -559,8 +559,22 @@ Lumina removes this option for H.264. HEVC is unaffected and retains `max_ref_fr
 
 ### Virtual HID Gamepad
 
-Lumina uses `IOHIDUserDeviceCreateWithProperties()` to publish a USB
-DualSense-compatible device, following MacOSReconfigureController commit
+Lumina uses `IOHIDUserDeviceCreateWithProperties()` with two selectable profiles.
+`auto` prefers Xbox on macOS 27+ and retains DualSense on older systems. Explicit
+`x360` and `ds5` selections override that choice; only one device is published per
+client controller, avoiding duplicate game input.
+
+**Xbox (`x360`):** VID/PID `0x045e`/`0x02fd`, manufacturer `Lumina`, product
+`Lumina Xbox Compatible`, `LUMINA-XB-<slot>` serials, Bluetooth wire protocol
+(no radio connection). Report 1 is 17 bytes including ID: four unsigned 16-bit
+sticks, two 10-bit triggers, hat, sparse Xbox button usages and Share. Report 2
+carries Guide as System Main Menu. Output report 3 is acknowledged without rumble.
+This report encoder and HID descriptor are authored locally from HID usages and
+the wire layout consumed by SDL's `SDL_hidapi_xboxone.c`; no code from
+OpenJoystickDriver is included. This is a compatibility candidate requiring
+macOS 27 native input and browser tests, not a verified universal fix.
+
+**DualSense (`ds5`):** following MacOSReconfigureController commit
 `98fa996859030065582003b27d7cb0156b22a534`:
 
 - **VID/PID:** `0x054c`/`0x0ce6`; manufacturer `Lumina`, unique `LUMINA-DS-<slot>` serials.
@@ -587,16 +601,23 @@ Lumina's submodules:
 # Protocol/layout/feature tests with ASan/UBSan, plus Objective-C compile/link check:
 bash scripts/test_macos_gamepad.sh
 
-# Also ad-hoc sign the isolated test binary with the HID entitlement and run it:
-bash scripts/test_macos_gamepad.sh --integration
+# Sign an isolated device test; require actual native press/release and removal:
+bash scripts/test_macos_gamepad.sh --integration --profile=xbox
+bash scripts/test_macos_gamepad.sh --integration --profile=ds5
+
+# Observe the running Lumina (no device creation or restricted signing):
+bash scripts/test_macos_gamepad.sh --monitor
 ```
 
 The integration test creates a temporary virtual controller and checks direct
-IOHID enumeration, input/feature GET_REPORT replies, and discovery as
-`GCDualSenseGamepad` **in a separate process**, including button press/release,
-D-pad, both sticks, analog triggers and removal. Device creation denied by the
-local signing/security policy returns exit code 77; signing may also be rejected
-before startup. The script changes no system security settings and does not
+IOHID enumeration, declared GET_REPORT replies, and discovery as `GCXboxGamepad`
+or `GCDualSenseGamepad` **in a separate, AppKit-initialized process**, including
+button press/release, D-pad, both sticks, analog triggers and removal. Existing
+controllers are excluded and the observer signals readiness before publication;
+the test does not depend on macOS preserving the manufacturer's name. The
+`--monitor` mode only prints native state changes for 25 seconds. Device creation
+denied by the local signing/security policy returns exit code 77; signing may
+also be rejected before startup. The script changes no system security settings and does not
 re-sign an installed Lumina binary. See [third-party notices](THIRD_PARTY_NOTICES.md)
 for the descriptor license.
 

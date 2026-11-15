@@ -107,6 +107,18 @@ static void test_features(void) {
         assert(read_le16(report + positive[i] + 2) == -8192);
     }
     assert(read_le16(report + 19) == 1024 && read_le16(report + 21) == 1024);
+
+    // Firmware info must be a complete 64-byte structured reply, not ID + zeros.
+    assert(dualSenseFeatureReport(0x20, report, 0) == 64);
+    assert(report[0] == 0x20);
+    assert(memcmp(report + 1, "Jul  4 2025", 11) == 0);
+    assert(memcmp(report + 12, "10:10:32", 8) == 0);
+    assert(read_le16(report + 20) == 3 && read_le16(report + 22) == 4);
+    assert(read_le16(report + 24) == 0x1310);
+    assert(read_le16(report + 28) == 0x002a && read_le16(report + 30) == 0x0110);
+    assert(read_le16(report + 44) == 0x0630);
+    assert(dualSenseFeatureReport(0x20, other, 15) == 64);
+    assert(memcmp(report, other, 64) == 0); // Firmware does not vary by slot.
 }
 
 int main(void) {
