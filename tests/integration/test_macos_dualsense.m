@@ -25,8 +25,10 @@ static BOOL testHIDReports(void) {
     if (result == kIOReturnSuccess && devices && CFSetGetCount(devices) == 1) {
         IOHIDDeviceRef device;
         CFSetGetValues(devices, (const void **)&device);
+        CFStringRef product = IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductKey));
+        passed = product && CFStringCompare(product, CFSTR("Wireless Controller"), 0) == kCFCompareEqualTo;
         result = IOHIDDeviceOpen(device, 0);
-        if (result == kIOReturnSuccess) {
+        if (result == kIOReturnSuccess && passed) {
             uint8_t bytes[64] = {0};
             CFIndex length = sizeof(bytes);
             result = IOHIDDeviceGetReport(device, kIOHIDReportTypeInput, 1, bytes, &length);

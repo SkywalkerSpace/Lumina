@@ -27,6 +27,7 @@ static IOReturn getReportCallback(void *refcon, int type, uint32_t reportID,
                                   uint8_t *report, CFIndex length) {
     HIDGamepadCallbackContext *context = (HIDGamepadCallbackContext *)refcon;
     IOReturn result = kIOReturnSuccess;
+    CFIndex responseLength = length;
     if (!report || length < 0) {
         result = kIOReturnBadArgument;
     } else {
@@ -37,29 +38,33 @@ static IOReturn getReportCallback(void *refcon, int type, uint32_t reportID,
             CFIndex size = MIN(length, (CFIndex)context->inputReport.length);
             memcpy(report, context->inputReport.bytes, (size_t)size);
         }
-    } else if (result == kIOReturnSuccess) {
-        // Match x360w's GET response byte-for-byte: zero-fill the requested
-        // buffer, echo the report ID, and provide its canned firmware/pairing
-        // fields. In particular, ID 0x0b is not in our USB descriptor and gets
-        // the same generic successful response as x360w.
-        if (length > 0) report[0] = (uint8_t)reportID;
-        if (type == kIOHIDReportTypeFeature && reportID == 0x09 && length >= 7) {
-            const uint8_t address[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
-            memcpy(report + 1, address, sizeof(address));
-        } else if (type == kIOHIDReportTypeFeature && reportID == 0x20 && length >= 4) {
-            report[1] = report[2] = report[3] = 0x30;
+    } else if (result == kIOReturnSuccess && type == kIOHIDReportTypeFeature) {
+        uint8_t featureReport[64];
+        size_t expectedLength = dualSenseFeatureReport(reportID, featureReport, 0);
+        if (expectedLength) {
+            if ((size_t)length < expectedLength) {
+                result = kIOReturnNoSpace;
+            } else {
+                memcpy(report, featureReport, expectedLength);
+                responseLength = (CFIndex)expectedLength;
+            }
+        } else if (length > 0) {
+            report[0] = (uint8_t)reportID;
         }
+    } else if (result == kIOReturnSuccess) {
+        // For non-feature requests, zero-fill and echo the requested report ID.
+        if (length > 0) report[0] = (uint8_t)reportID;
     }
 
     char bytes[3 * 16 + 1] = {};
-    if (report && length > 0) {
-        CFIndex count = MIN(length, 16);
+    if (report && responseLength > 0) {
+        CFIndex count = MIN(responseLength, 16);
         for (CFIndex i = 0; i < count; ++i) {
             snprintf(bytes + i * 3, sizeof(bytes) - (size_t)i * 3, "%02x ", report[i]);
         }
     }
     NSLog(@"[HIDGamepad] GET type=%d id=0x%02x len=%ld data=[%s] result=0x%x",
-          type, reportID, (long)length, bytes, result);
+          type, reportID, (long)responseLength, bytes, result);
     return result;
 }
 
@@ -93,7 +98,7 @@ static NSDictionary *deviceProperties(int index) {
         // Match x360w's native DualSense identity so consumers which classify
         // controllers by their HID properties see the same profile.
         @kIOHIDManufacturerKey:   @"Sony Interactive Entertainment",
-        @kIOHIDProductKey:        @"DualSense Wireless Controller",
+        @kIOHIDProductKey:        @"Wireless Controller",
         @kIOHIDSerialNumberKey:   [NSString stringWithFormat:@"X360W-D%d", index + 1],
         @kIOHIDTransportKey:      @"USB",
         @kIOHIDPrimaryUsagePageKey: @(0x01),
