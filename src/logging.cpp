@@ -281,6 +281,10 @@ namespace logging {
       << "    --help                    | print help"sv << std::endl
       << "    --creds username password | set user credentials for the Web manager"sv << std::endl
       << "    --version                 | print the version of sunshine"sv << std::endl
+#ifdef __APPLE__
+      << "    --gamecontroller-list    | list controllers visible to Apple's GameController API"sv << std::endl
+      << "    --gamecontroller-probe   | send synthetic DualSense input reports every 100 ms"sv << std::endl
+#endif
       << std::endl
       << "    flags"sv << std::endl
       << "        -0 | Read PIN from stdin"sv << std::endl

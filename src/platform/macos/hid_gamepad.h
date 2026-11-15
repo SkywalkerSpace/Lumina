@@ -11,15 +11,20 @@
 
 #include "dualsense_gamepad.h"
 
+typedef void (^HIDGamepadRumbleHandler)(uint8_t strong, uint8_t weak);
+
 @interface HIDGamepad : NSObject {
     NSMutableData *_inputReport;
     uint8_t _sequence;
+    uint32_t _timestamp;
 }
 
 @property (nonatomic, assign) int gamepadIndex;
 @property (nonatomic, assign) BOOL isConnected;
 @property (nonatomic, assign) IOHIDUserDeviceRef hidDevice;
 @property (nonatomic, strong) dispatch_queue_t hidQueue;
+@property (nonatomic, copy) HIDGamepadRumbleHandler rumbleHandler;
+@property (nonatomic, assign) BOOL diagnosticReportLogging;
 
 /**
  * Probes whether IOHIDUserDevice virtual gamepads can be created.
@@ -28,6 +33,7 @@
 + (BOOL)isAvailable;
 
 - (instancetype)initWithIndex:(int)index;
+- (instancetype)initWithIndex:(int)index rumbleHandler:(HIDGamepadRumbleHandler)handler;
 
 /**
  * Creates the IOHIDUserDevice and sends an initial neutral-state report.

@@ -54,6 +54,13 @@ namespace args {
    */
   int version();
 
+#ifdef __APPLE__
+  /** Print controllers currently visible through Apple's GameController API. */
+  int gamecontroller_list();
+  /** Create a virtual DualSense and send changing input reports at 100 ms intervals. */
+  int gamecontroller_probe();
+#endif
+
 #ifdef _WIN32
   /**
    * @brief Restore global NVIDIA control panel settings.

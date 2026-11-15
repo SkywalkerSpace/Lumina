@@ -17,12 +17,27 @@ static void test_neutral_and_axes(void) {
     assert(report.rightStickX == 128 && report.rightStickY == 128);
     assert(report.leftTrigger == 0 && report.rightTrigger == 0);
     assert(report.buttons[0] == 8 && report.buttons[1] == 0 && report.buttons[2] == 0);
-    assert(report.reserved[22] == 0x80 && report.reserved[26] == 0x80);
+    for (unsigned i = 0; i < sizeof(report.reserved); ++i) assert(report.reserved[i] == 0);
 
     report = dualSenseReport(0, INT16_MIN, INT16_MAX, INT16_MAX, INT16_MIN, 123, 255);
     assert(report.leftStickX == 0 && report.leftStickY == 0);
     assert(report.rightStickX == 255 && report.rightStickY == 255);
     assert(report.leftTrigger == 123 && report.rightTrigger == 255);
+}
+
+static void test_x360w_wire_layout(void) {
+    HIDGamepadReport report = dualSenseReport(0x1000 | 0x0100 | 0x0001 | 0x0008,
+                                               INT16_MAX, INT16_MIN,
+                                               INT16_MIN, INT16_MAX, 192, 64);
+    dualSenseSetTimestamp(&report, 0x12345678);
+    const uint8_t expected[] = {
+        0x01, 0xff, 0xff, 0x00, 0x00, 192, 64, 0,
+        0x21, 0x05, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12,
+    };
+    assert(memcmp(&report, expected, sizeof(expected)) == 0);
+    for (unsigned i = sizeof(expected); i < sizeof(report); ++i) {
+        assert(((const uint8_t *)&report)[i] == 0);
+    }
 }
 
 static void test_buttons_and_hat(void) {
@@ -111,6 +126,7 @@ static void test_features(void) {
 
 int main(void) {
     test_neutral_and_axes();
+    test_x360w_wire_layout();
     test_buttons_and_hat();
     test_descriptor();
     test_features();

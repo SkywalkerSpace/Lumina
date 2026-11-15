@@ -16,7 +16,7 @@ static BOOL testHIDReports(void) {
     IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, 0);
     NSDictionary *matching = @{
         @kIOHIDVendorIDKey: @(0x054c), @kIOHIDProductIDKey: @(0x0ce6),
-        @kIOHIDSerialNumberKey: @"LUMINA-DS-15"
+        @kIOHIDSerialNumberKey: @"X360W-D16"
     };
     IOHIDManagerSetDeviceMatching(manager, (__bridge CFDictionaryRef)matching);
     IOReturn result = IOHIDManagerOpen(manager, 0);
@@ -62,7 +62,8 @@ static int observe(void) {
         pump(0.02);
         if (!controller) {
             for (GCController *candidate in [GCController controllers]) {
-                if ([candidate.vendorName containsString:@"Lumina"]) {
+                if ([candidate.vendorName containsString:@"Sony"] ||
+                    [candidate.vendorName containsString:@"DualSense"]) {
                     controller = [candidate retain];
                     NSLog(@"Native observer found %@ / %@", controller.vendorName,
                           NSStringFromClass([controller.extendedGamepad class]));

@@ -51,6 +51,14 @@ std::map<std::string_view, std::function<int(const char *name, int argc, char **
   {"version"sv, [](const char *name, int argc, char **argv) {
      return args::version();
    }},
+#ifdef __APPLE__
+  {"gamecontroller-list"sv, [](const char *name, int argc, char **argv) {
+     return args::gamecontroller_list();
+   }},
+  {"gamecontroller-probe"sv, [](const char *name, int argc, char **argv) {
+     return args::gamecontroller_probe();
+   }},
+#endif
 #ifdef _WIN32
   {"restore-nvprefs-undo"sv, [](const char *name, int argc, char **argv) {
      return args::restore_nvprefs_undo();

@@ -3,7 +3,7 @@
  * 98fa996859030065582003b27d7cb0156b22a534. Motion, touch, audio, haptics and
  * adaptive triggers are not emulated.
  *
- * Descriptor: https://github.com/zeromiyi/x360w/blob/main/src/ds_desc.h
+ * Descriptor: byte-for-byte synchronized with x360w/src/ds_desc.h (273 bytes).
  * MIT License
  * Copyright (c) 2026 古董修复师
  *
@@ -73,6 +73,14 @@ static_assert(sizeof(HIDGamepadReport) == 64, "DualSense USB input report size")
 _Static_assert(sizeof(HIDGamepadReport) == 64, "DualSense USB input report size");
 #endif
 
+/* x360w stores its monotonically increasing input tick in report bytes 12-15. */
+static inline void dualSenseSetTimestamp(HIDGamepadReport *report, uint32_t timestamp) {
+    report->reserved[1] = (uint8_t)timestamp;
+    report->reserved[2] = (uint8_t)(timestamp >> 8);
+    report->reserved[3] = (uint8_t)(timestamp >> 16);
+    report->reserved[4] = (uint8_t)(timestamp >> 24);
+}
+
 /* Sunshine uses signed sticks with positive Y pointing up; USB HID Y points down.
  * Widen before negating so INT16_MIN does not overflow. */
 static inline uint8_t dualSenseStick(int16_t value, int invert) {
@@ -111,8 +119,6 @@ static inline HIDGamepadReport dualSenseReport(uint32_t flags,
     if (flags & 0x0400)   report.buttons[2] |= 0x01; // PS
     if (flags & 0x100000) report.buttons[2] |= 0x02; // Touchpad click
     if (flags & 0x200000) report.buttons[2] |= 0x04; // Microphone/misc
-    report.reserved[22] = 0x80; // byte 33: inactive touch contact
-    report.reserved[26] = 0x80; // byte 37: inactive touch contact
     return report;
 }
 

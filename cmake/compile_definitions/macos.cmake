@@ -26,6 +26,7 @@ FIND_LIBRARY(CORE_AUDIO_LIBRARY CoreAudio)
 
 # IOKit for virtual HID gamepad (IOHIDUserDevice)
 FIND_LIBRARY(IOKIT_LIBRARY IOKit)
+FIND_LIBRARY(GAME_CONTROLLER_LIBRARY GameController)
 
 list(APPEND SUNSHINE_EXTERNAL_LIBRARIES
         ${APP_KIT_LIBRARY}
@@ -39,6 +40,7 @@ list(APPEND SUNSHINE_EXTERNAL_LIBRARIES
         ${AUDIO_TOOLBOX_LIBRARY}
         ${CORE_AUDIO_LIBRARY}
         ${IOKIT_LIBRARY})
+list(APPEND SUNSHINE_EXTERNAL_LIBRARIES ${GAME_CONTROLLER_LIBRARY})
 
 set(APPLE_PLIST_FILE "${SUNSHINE_SOURCE_ASSETS_DIR}/macos/assets/Info.plist")
 
@@ -58,6 +60,7 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/dualsense_gamepad.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.m"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/gamecontroller_probe.mm"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/display.mm"

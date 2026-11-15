@@ -366,7 +366,11 @@ const KeyCodeMap kKeyCodesMap[] = {
 
       // Try HID mode first if available
       if (macos_input->hid_available) {
-        HIDGamepad *hid = [[HIDGamepad alloc] initWithIndex:i];
+        auto controller_id = id.clientRelativeIndex;
+        HIDGamepad *hid = [[HIDGamepad alloc] initWithIndex:i rumbleHandler:^(uint8_t strong, uint8_t weak) {
+          feedback_queue->raise(gamepad_feedback_msg_t::make_rumble(
+            controller_id, (std::uint16_t)strong * 257, (std::uint16_t)weak * 257));
+        }];
         if ([hid createDevice]) {
           macos_input->hid_gamepads[i] = hid;
           macos_input->gamepad_modes[i] = gamepad_mode_e::HID;
