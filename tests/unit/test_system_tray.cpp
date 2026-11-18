@@ -3,6 +3,7 @@
  * @brief Tests for system tray state and native lifecycle.
  */
 #include <gtest/gtest.h>
+#include <string_view>
 
 #if defined(SUNSHINE_TRAY) && SUNSHINE_TRAY >= 1
   #include <tray.h>
@@ -35,6 +36,22 @@ namespace {
   }
 
   #if defined(__APPLE__) || defined(__MACH__)
+  TEST_F(SystemTrayTest, MacOSOffersDockIconCheckbox) {
+    const auto &tray = system_tray::tray_data_for_testing();
+    const struct tray_menu *dock_item = nullptr;
+    for (auto *item = tray.menu; item->text != nullptr; ++item) {
+      if (std::string_view(item->text) == "Hide Dock Icon") {
+        ASSERT_EQ(dock_item, nullptr);
+        dock_item = item;
+      }
+    }
+
+    ASSERT_NE(dock_item, nullptr);
+    EXPECT_EQ(dock_item->checkbox, 1);
+    EXPECT_EQ(dock_item->disabled, 0);
+    EXPECT_NE(dock_item->cb, nullptr);
+  }
+
   TEST_F(SystemTrayTest, MacOSUsesQtNativeContextMenuOnly) {
     const auto &tray = system_tray::tray_data_for_testing();
 

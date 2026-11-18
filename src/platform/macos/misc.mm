@@ -25,6 +25,7 @@
 // platform includes
 #include <arpa/inet.h>
 #include <ApplicationServices/ApplicationServices.h>
+#include <AppKit/AppKit.h>
 #include <dlfcn.h>
 #include <Foundation/Foundation.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
@@ -51,6 +52,41 @@ namespace fs = std::filesystem;
 namespace bp = boost::process::v1;
 
 namespace platf {
+
+  bool dock_icon_hidden() {
+    // Use a stable domain for both the app bundle and command-line builds.
+    return CFPreferencesGetAppBooleanValue(CFSTR("HideDockIcon"), CFSTR(PROJECT_FQDN), nullptr);
+  }
+
+  bool apply_dock_icon_hidden(const bool hidden) {
+    if (![NSThread isMainThread] || NSApp == nil) {
+      BOOST_LOG(warning) << "Dock visibility can only be changed on the initialized main thread"sv;
+      return false;
+    }
+
+    const auto policy = hidden ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular;
+    if (![NSApp setActivationPolicy:policy]) {
+      BOOST_LOG(warning) << "Failed to change Dock icon visibility"sv;
+      return false;
+    }
+
+    return true;
+  }
+
+  bool set_dock_icon_hidden(const bool hidden) {
+    if (!apply_dock_icon_hidden(hidden)) {
+      return false;
+    }
+    if (dock_icon_hidden() == hidden) {
+      return true;
+    }
+
+    CFPreferencesSetAppValue(CFSTR("HideDockIcon"), hidden ? kCFBooleanTrue : kCFBooleanFalse, CFSTR(PROJECT_FQDN));
+    if (!CFPreferencesAppSynchronize(CFSTR(PROJECT_FQDN))) {
+      BOOST_LOG(warning) << "Failed to save Dock icon visibility preference"sv;
+    }
+    return true;
+  }
 
 // Even though the following two functions are available starting in macOS 10.15, they weren't
 // actually in the Mac SDK until Xcode 12.2, the first to include the SDK for macOS 11

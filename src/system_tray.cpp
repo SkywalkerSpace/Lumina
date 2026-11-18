@@ -24,6 +24,7 @@
     #define TRAY_ICON_PAUSING WEB_DIR "images/sunshine-pausing-16.png"
     #define TRAY_ICON_LOCKED WEB_DIR "images/sunshine-locked-16.png"
     #include <dispatch/dispatch.h>
+    #include "platform/macos/misc.h"
   #endif
 
   // standard includes
@@ -112,6 +113,8 @@ namespace system_tray {
   }
 
   #if defined(__APPLE__) || defined(__MACH__)
+  static void tray_toggle_dock_icon_cb(struct tray_menu *item);
+
   /**
    * @brief Let Qt/macOS present the assigned native context menu exactly once.
    *
@@ -135,6 +138,10 @@ namespace system_tray {
         // todo - use boost/locale to translate menu strings
         {.text = "Open Lumina", .cb = tray_open_ui_cb},
         {.text = "-"},
+  #if defined(__APPLE__) || defined(__MACH__)
+        {.text = "Hide Dock Icon", .checkbox = 1, .cb = tray_toggle_dock_icon_cb},
+        {.text = "-"},
+  #endif
   // Currently display device settings are only supported on Windows
   #ifdef _WIN32
         {.text = "Reset Display Device Config", .cb = tray_reset_display_device_config_cb},
@@ -146,6 +153,17 @@ namespace system_tray {
     .iconPathCount = 4,
     .allIconPaths = {TRAY_ICON, TRAY_ICON_LOCKED, TRAY_ICON_PLAYING, TRAY_ICON_PAUSING},
   };
+
+  #if defined(__APPLE__) || defined(__MACH__)
+  static void tray_toggle_dock_icon_cb(struct tray_menu *item) {
+    if (platf::set_dock_icon_hidden(!item->checked)) {
+      item->checked = !item->checked;
+    }
+    // Refresh even on failure, since Qt has already toggled the QAction.
+    // Do not re-send a retained stream or pairing notification.
+    tray_update_menu(&tray);
+  }
+  #endif
 
   #ifdef SUNSHINE_TESTS
   const struct tray &tray_data_for_testing() {
@@ -236,6 +254,18 @@ namespace system_tray {
       BOOST_LOG(warning) << "Failed to create system tray"sv;
       return 1;
     }
+
+  #if defined(__APPLE__) || defined(__MACH__)
+    // Qt must create NSApplication and the menu bar icon before hiding the Dock icon.
+    // Never hide it when tray initialization fails, or the app could become inaccessible.
+    for (auto *item = tray.menu; item->text != nullptr; ++item) {
+      if (item->cb == tray_toggle_dock_icon_cb) {
+        item->checked = platf::dock_icon_hidden() && platf::apply_dock_icon_hidden(true);
+        break;
+      }
+    }
+    tray_update_menu(&tray);
+  #endif
 
     BOOST_LOG(info) << "System tray created"sv;
     tray_initialized = true;
