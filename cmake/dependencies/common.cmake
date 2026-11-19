@@ -16,6 +16,9 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/Simple-Web-Server")
 add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/libdisplaydevice")
 
 if(SUNSHINE_ENABLE_TRAY)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${CMAKE_SOURCE_DIR}/third-party/tray.diff")
+    include("${CMAKE_CURRENT_LIST_DIR}/patch_tray.cmake")
     add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/tray")
 endif()
 

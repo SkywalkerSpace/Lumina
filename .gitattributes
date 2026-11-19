@@ -3,3 +3,6 @@ Dockerfile text eol=lf
 *.dockerfile text eol=lf
 *flatpak-lint-*.json text eol=lf
 *.sh text eol=lf
+
+# Patch context lines intentionally contain a single space.
+third-party/*.diff text eol=lf -whitespace
